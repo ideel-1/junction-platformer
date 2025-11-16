@@ -6,7 +6,7 @@ export const PROMPTS: string[] = [
     "Celebrate a product launch that leveled up execution.",
     "Share insights from an offsite that reset the team’s energy.",
     "Frame a tough quarter as fuel for sharper priorities.",
-    "Welcome a new joiner and spotlight their unique leverage.",
+    "Welcome a new team member and spotlight their unique leverage.",
     "Note how mentorship reshaped your growth this cycle.",
     "Close a major initiative with gratitude and clarity.",
     "Explain how the team is doubling down on alignment.",

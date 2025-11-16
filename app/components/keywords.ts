@@ -23,7 +23,7 @@ export type Keyword = {
     { id: "playbook", word: "playbook", colorClass: "text-indigo-500" },
     { id: "momentum", word: "momentum", colorClass: "text-lime-500" },
     { id: "cadence", word: "cadence", colorClass: "text-fuchsia-500" },
-    { id: "rituals", word: "rituals", colorClass: "text-cyan-500" },
+    { id: "ritual", word: "ritual", colorClass: "text-cyan-500" },
     { id: "coherence", word: "coherence", colorClass: "text-amber-500" },
     { id: "leverage", word: "leverage", colorClass: "text-orange-500" },
     { id: "governance", word: "governance", colorClass: "text-rose-500" },
