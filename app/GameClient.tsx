@@ -33,7 +33,7 @@ const PLAYER_HEIGHT = 150;
 const PLAYER_SPEED_PX_PER_SEC = 350;
 
 const MOVE_PHASE_DURATION_MS = 10_000;
-const WRITING_PHASE_DURATION_MS = 20_000; // 20s writing window
+const WRITING_PHASE_DURATION_MS = 30_000; // 20s writing window
 
 const GROUND_HEIGHT = 40;
 function mapDifficultyToBaseFallSpeed(difficulty: "light" | "medium" | "heavy" | "insane"): number {
@@ -63,8 +63,8 @@ const DIFFICULTY_CONFIG: Record<Difficulty, DifficultyConfig> = {
 };
 
 function mapScoreToDifficulty(score: number): Difficulty {
-  if (score >= 9.5) return "light";
-  if (score >= 7) return "medium";
+  if (score >= 9) return "light";
+  if (score >= 6.5) return "medium";
   if (score >= 4) return "heavy";
   return "insane";
 }
@@ -84,11 +84,16 @@ const GameClient: React.FC = () => {
   const [gameWidth, setGameWidth] = useState(DEFAULT_GAME_WIDTH);
   const [gameHeight, setGameHeight] = useState(DEFAULT_GAME_HEIGHT);
 
+  const [evaluationHistory, setEvaluationHistory] = useState<
+  { prompt: string | null; score: number; comment: string | null }[]
+>([]);
+
   const [playerX, setPlayerX] = useState(
     DEFAULT_GAME_WIDTH / 2 - PLAYER_WIDTH / 2
   );
   const [playerY, setPlayerY] = useState(DEFAULT_GAME_HEIGHT - PLAYER_HEIGHT - GROUND_HEIGHT);
   const [facing, setFacing] = useState<"left" | "right">("right");
+  const [isHitFlashing, setIsHitFlashing] = useState(false);
 
   const [components, setComponents] = useState<FallingComponent[]>([]);
   const nextComponentIdRef = useRef(1);
@@ -103,6 +108,7 @@ const GameClient: React.FC = () => {
   const [lastAiComment, setLastAiComment] = useState<string | null>(null);    
 
   const [currentKeywords, setCurrentKeywords] = useState<Keyword[]>([]);
+  const [writingTimeLimitMs, setWritingTimeLimitMs] = useState(30000);
 
 
   // movement: -1 left, 0 none, 1 right
@@ -122,6 +128,11 @@ const GameClient: React.FC = () => {
     const lastHitTimeRef = useRef<number>(0);
     const leftPressedRef = useRef(false);
     const rightPressedRef = useRef(false);
+    const hitFlashTimeoutRef = useRef<number | null>(null);
+
+    // ADD THESE:
+    const hitQueuedRef = useRef(false);
+    const hitTypeQueuedRef = useRef<string | null>(null);
 
     
 
@@ -306,67 +317,95 @@ useEffect(() => {
       }
   
       // update components positions + handle collisions & cleanup
-      const px = playerXRef.current;
-      const py = playerYRef.current;
-  
-      setComponents((prev) => {
-        const updated: FallingComponent[] = [];
-        let hitPlayerThisFrame = false;
+      // update components positions + handle collisions & cleanup
+      // update components positions + handle collisions & cleanup
+        const px = playerXRef.current;
+        const py = playerYRef.current;
+
+        let collisionThisTick = false;
         let killedByType: string | null = null;
-  
-        const nowInner = performance.now();
-  
+
+        setComponents((prev) => {
+        const updated: FallingComponent[] = [];
+
         for (const c of prev) {
-          const nextY = c.y + c.speedY * deltaSec;
-          const nextRotation = c.rotation + c.rotationSpeed * deltaSec;
-  
-          // remove components that have fallen well below the screen
-          if (nextY > gh + 100) {
+            const nextY = c.y + c.speedY * deltaSec;
+            const nextRotation = c.rotation + c.rotationSpeed * deltaSec;
+
+            // remove components that have fallen well below the screen
+            if (nextY > gh + 100) {
             continue;
-          }
-  
-          // collision check vs. the NEXT position
-          const overlapsHorizontally =
+            }
+
+            // collision check vs. NEXT position
+            const overlapsHorizontally =
             c.x < px + PLAYER_WIDTH && c.x + c.width > px;
-          const overlapsVertically =
+            const overlapsVertically =
             nextY < py + PLAYER_HEIGHT && nextY + c.height > py;
-  
-          const canHitAgain = nowInner - lastHitTimeRef.current > 250;
-  
-          if (
-            overlapsHorizontally &&
-            overlapsVertically &&
-            !hitPlayerThisFrame &&
-            canHitAgain
-          ) {
-            // register one hit and REMOVE this component
-            hitPlayerThisFrame = true;
-            lastHitTimeRef.current = nowInner;
-            killedByType = c.config.title;
+
+            if (overlapsHorizontally && overlapsVertically) {
+            // mark a collision and DROP this component
+            collisionThisTick = true;
+            if (!killedByType) {
+                killedByType = c.config.title;
+            }
             continue; // do not keep this component
-          }
-  
-          // keep component with updated position & rotation
-          updated.push({
+            }
+
+            // keep component with updated position & rotation
+            updated.push({
             ...c,
             y: nextY,
             rotation: nextRotation,
-          });
+            });
         }
-  
-        if (hitPlayerThisFrame) {
-          setLives((prevLives) => {
-            const next = prevLives - 1;
-            if (next <= 0) {
-              setKilledBy(killedByType ?? "Unknown Asset");
-              setPhase("end");
+
+        // update the hit refs for this frame
+        if (collisionThisTick) {
+            hitQueuedRef.current = true;
+            if (!hitTypeQueuedRef.current && killedByType) {
+            hitTypeQueuedRef.current = killedByType;
             }
-            return next;
-          });
         }
-  
+
         return updated;
-      });
+        });
+
+        if (hitQueuedRef.current) {
+            const nowInner = performance.now();
+            const canHitAgain = nowInner - lastHitTimeRef.current > 250; // 250 ms invuln
+          
+            if (canHitAgain) {
+                lastHitTimeRef.current = nowInner;
+              
+                setLives((prevLives) => {
+                  const next = prevLives - 1;
+                  if (next <= 0) {
+                    setKilledBy(hitTypeQueuedRef.current ?? "Unknown Asset");
+                    setPhase("end");
+                  }
+                  return next;
+                });
+              
+                // trigger short hit flash
+                setIsHitFlashing(true);
+                if (hitFlashTimeoutRef.current != null) {
+                  window.clearTimeout(hitFlashTimeoutRef.current);
+                }
+                hitFlashTimeoutRef.current = window.setTimeout(() => {
+                  setIsHitFlashing(false);
+                  hitFlashTimeoutRef.current = null;
+                }, 150); // 150ms flash; tweak duration
+              
+                // reset hit flags for next frame
+                hitQueuedRef.current = false;
+                hitTypeQueuedRef.current = null;
+              }
+          
+            // reset hit flags for next frame
+            hitQueuedRef.current = false;
+            hitTypeQueuedRef.current = null;
+          }
   
       if (phase === "movement") {
         animationFrameId = requestAnimationFrame(loop);
@@ -435,7 +474,7 @@ useEffect(() => {
   // ---- writing phase handling ----
   function startWritingPhase() {
     setPhase("writing");
-    setWritingTimeLeftMs(WRITING_PHASE_DURATION_MS);
+    setWritingTimeLeftMs(writingTimeLimitMs);
     setTypedText("");
   
     const prompt =
@@ -525,23 +564,44 @@ useEffect(() => {
   }, [phase]);
 
   async function handleSubmitText() {
-    // avoid double-submit
+    // prevent double-submit
     if (phase !== "writing") return;
     if (isEvaluating) return;
   
-    // if nothing typed, treat as 0 and skip network
-    if (!typedText.trim()) {
+    const currentText = typedText.trim();
+    const isEmpty = currentText.length === 0;
+  
+    // ---- CASE: Empty text (skip API completely) ----
+    if (isEmpty) {
       const zeroScore = 0;
+  
+      // record in history
+      setEvaluationHistory(prev => [
+        ...prev,
+        {
+          prompt: currentPrompt,
+          score: zeroScore,
+          comment: "No content provided.",
+        },
+      ]);
+  
       setLastAiScore(zeroScore);
       setLastAiComment("No content provided.");
+  
       const nextDiff = mapScoreToDifficulty(zeroScore);
       setDifficulty(nextDiff);
+  
+      // shrink next writing time (but not below 10s)
+      setWritingTimeLimitMs(prev => Math.max(10000, prev - 5000));
+  
+      // go back to movement
       setPhase("movement");
       setMovementPhaseElapsedMs(0);
       setCurrentPrompt(null);
       return;
     }
   
+    // ---- CASE: Non-empty → evaluate with API ----
     try {
       setIsEvaluating(true);
   
@@ -549,26 +609,48 @@ useEffect(() => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-            text: typedText,
-            prompt: currentPrompt,
-            keywords: currentKeywords.map((k) => k.word),
+          text: currentText,
+          prompt: currentPrompt,
+          keywords: currentKeywords.map(k => k.word),
         }),
       });
   
       if (!res.ok) {
-        // fall back to a neutral score on error
+        // ---- fallback error scoring ----
         const fallbackScore = 5;
+  
+        setEvaluationHistory(prev => [
+          ...prev,
+          {
+            prompt: currentPrompt,
+            score: fallbackScore,
+            comment: "Evaluation failed; using fallback.",
+          },
+        ]);
+  
         setLastAiScore(fallbackScore);
         setLastAiComment("Evaluation failed; using a neutral difficulty.");
         const nextDiff = mapScoreToDifficulty(fallbackScore);
         setDifficulty(nextDiff);
       } else {
+        // ---- valid response ----
         const data = (await res.json()) as {
           score: number;
           comment?: string;
         };
+  
         const roundedScore =
           Math.round(Math.max(0, Math.min(10, data.score)) * 10) / 10;
+  
+        // store full round in history
+        setEvaluationHistory(prev => [
+          ...prev,
+          {
+            prompt: currentPrompt,
+            score: roundedScore,
+            comment: data.comment ?? null,
+          },
+        ]);
   
         setLastAiScore(roundedScore);
         setLastAiComment(data.comment ?? null);
@@ -576,21 +658,37 @@ useEffect(() => {
         const nextDiff = mapScoreToDifficulty(roundedScore);
         setDifficulty(nextDiff);
   
-        // regain life on near-perfect scores
-        if (roundedScore >= 9.8) {
-          setLives((prev) => Math.min(3, prev + 1));
+        // regain life rule
+        if (roundedScore >= 9.0) {
+          setLives(prev => Math.min(3, prev + 1));
         }
       }
     } catch (err) {
       console.error("Error calling /api/evaluate:", err);
+  
       const fallbackScore = 5;
+  
+      // record fallback
+      setEvaluationHistory(prev => [
+        ...prev,
+        {
+          prompt: currentPrompt,
+          score: fallbackScore,
+          comment: "Evaluation error; using fallback.",
+        },
+      ]);
+  
       setLastAiScore(fallbackScore);
       setLastAiComment("Evaluation error; using a neutral difficulty.");
       const nextDiff = mapScoreToDifficulty(fallbackScore);
       setDifficulty(nextDiff);
     } finally {
       setIsEvaluating(false);
-      // back to movement
+  
+      // shrink the writing time for NEXT round (30 → 25 → 20 → 15 → 10)
+      setWritingTimeLimitMs(prev => Math.max(10000, prev - 5000));
+  
+      // return to movement
       setPhase("movement");
       setMovementPhaseElapsedMs(0);
       setCurrentPrompt(null);
@@ -608,6 +706,8 @@ useEffect(() => {
     setDifficulty("medium");
     setComponents([]);
     setKilledBy(null);
+    setWritingTimeLimitMs(30000);
+    setEvaluationHistory([]);
     setLastAiScore(null);
     setLastAiComment(null);
     setTypedText("");
@@ -623,7 +723,14 @@ useEffect(() => {
     leftPressedRef.current = false;
     rightPressedRef.current = false;
     moveDirectionRef.current = 0;
-  
+
+    // reset hit flash
+    setIsHitFlashing(false);
+    if (hitFlashTimeoutRef.current != null) {
+        window.clearTimeout(hitFlashTimeoutRef.current);
+        hitFlashTimeoutRef.current = null;
+    }
+    
     lastSpawnTimeRef.current = performance.now();
   }
   
@@ -638,6 +745,13 @@ useEffect(() => {
     0,
     Math.ceil(writingTimeLeftMs / 1000)
   );
+
+  // new: movement phase countdown (10 → 0)
+    const movementSecondsLeft = Math.max(
+    0,
+    Math.ceil((MOVE_PHASE_DURATION_MS - movementPhaseElapsedMs) / 1000)
+  );
+  
 
   return (
     <div className="w-full h-screen bg-white">
@@ -671,8 +785,7 @@ useEffect(() => {
                 className="absolute left-0 bottom-0 w-full border-t border-slate-300 bg-slate-200/90"
                 style={{ height: GROUND_HEIGHT }}
             />
-          {/* player sprite */}
-            {phase !== "intro" && phase !== "end" && (
+          {phase !== "intro" && phase !== "end" && (
             <div
                 className="absolute"
                 style={{
@@ -680,7 +793,9 @@ useEffect(() => {
                 height: PLAYER_HEIGHT,
                 left: playerX,
                 top: playerY,
-                backgroundImage: "url('assets/corporate_guy.png')",
+                backgroundImage: isHitFlashing
+                    ? "url('/assets/corporate_guy_flinch.png')"
+                    : "url('/assets/corporate_guy.png')",
                 backgroundSize: "contain",
                 backgroundRepeat: "no-repeat",
                 backgroundPosition: "bottom center",
@@ -777,6 +892,19 @@ useEffect(() => {
             );
             })}
 
+        {phase === "movement" && (
+        <div className="pointer-events-none absolute top-8 left-1/2 -translate-x-1/2 z-30 text-5xl sm:text-6xl font-mono font-semibold text-slate-800/80 drop-shadow">
+            {movementSecondsLeft}
+        </div>
+        )}
+
+        
+        {phase === "writing" && (
+        <div className="pointer-events-none absolute top-8 left-1/2 -translate-x-1/2 z-30 text-5xl sm:text-6xl font-mono font-semibold text-slate-800/80 drop-shadow">
+            {writingSecondsLeft}
+        </div>
+        )}
+
           {/* intro overlay */}
           {phase === "intro" && (
             <div className="absolute inset-0 flex items-center justify-center">
@@ -784,7 +912,7 @@ useEffect(() => {
                 <div
                 className="absolute inset-0 bg-center bg-cover"
                 style={{
-                    backgroundImage: "url('assets/background_pic1.avif')", // adjust extension if needed
+                    backgroundImage: "url('/assets/background_pic1.avif')", // adjust extension if needed
                 }}
                 >
                 {/* White overlay for softness / readability */}
@@ -834,23 +962,20 @@ useEffect(() => {
                 {/* Header + prompt */}
                 <div className="flex items-start justify-between gap-4">
                     <div className="space-y-1">
-                    <div className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
-                        Professional Update Required
-                    </div>
-                    <div className="text-sm sm:text-[15px] text-slate-800">
+                    <div className="text-2xl font-bold text-slate-800">
                         {currentPrompt ?? "Write a short, serious update."}
                     </div>
                     </div>
                     <div className="shrink-0">
-                    <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-mono text-slate-700 shadow-sm">
-                        {writingSecondsLeft}s
-                    </div>
                     </div>
                 </div>
 
                 {/* Keywords – large, bold, colored */}
                 {currentKeywords.length > 0 && (
                     <div className="flex flex-wrap gap-x-6 gap-y-1 mt-1">
+                        <div className="shrink-0 font-extralight text-neutral-800">
+                            use these keywords:
+                        </div>
                     {currentKeywords.map((kw) => (
                         <span
                         key={kw.id}
@@ -871,14 +996,20 @@ useEffect(() => {
 
                     {/* Transparent textarea on top */}
                     <textarea
-                    value={typedText}
-                    onChange={(e) => {
-                        const val = e.target.value;
-                        setTypedText(val);
-                    }}
-                    className="relative w-full h-32 rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-relaxed text-transparent caret-slate-800 resize-none focus:outline-none focus:ring-2 focus:ring-sky-500"
-                    placeholder="Compose a concise, confident, LinkedIn-ready update..."
-                    />
+                        value={typedText}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            setTypedText(val);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleSubmitText();
+                            }
+                        }}
+                        className="relative w-full h-32 rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-relaxed text-transparent caret-slate-800 resize-none focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        placeholder="Compose a concise, confident, LinkedIn-ready update..."
+                        />
                 </div>
 
                 {/* Footer: score + button */}
@@ -891,17 +1022,16 @@ useEffect(() => {
                         </>
                     )}
                     </div>
-                    <button
-                    onClick={handleSubmitText}
-                    disabled={isEvaluating}
-                    className={`px-4 py-2 text-xs sm:text-sm rounded-lg font-semibold text-white shadow-sm transition-colors ${
+                    <div
+                    onClick={!isEvaluating ? handleSubmitText : undefined}
+                    className={`select-none cursor-pointer font-bold text-4xl tracking-tight ${
                         isEvaluating
-                        ? "bg-slate-400 cursor-not-allowed"
-                        : "bg-sky-500 hover:bg-sky-600"
+                        ? "text-slate-400 cursor-not-allowed"
+                        : "text-neutral-600 hover:text-neutral-700 transition-colors"
                     }`}
                     >
-                    {isEvaluating ? "Evaluating…" : "Submit Update"}
-                    </button>
+                    {isEvaluating ? "Evaluating…" : "SUBMIT"}
+                    </div>
                 </div>
                 </div>
             </div>
@@ -910,41 +1040,77 @@ useEffect(() => {
 
           {/* end overlay */}
           {phase === "end" && (
-            <div className="absolute inset-0 bg-white/90 flex items-center justify-center">
-              <div className="w-[80%] max-w-md bg-white rounded-lg shadow-lg border border-slate-200 p-5 flex flex-col gap-3">
-                <h2 className="text-lg font-semibold text-slate-800">
-                  Simulation Concluded
-                </h2>
-                <div className="text-sm text-slate-700">
-                  Final score:{" "}
-                  <span className="font-mono font-semibold">{score}</span>
+            <div className="absolute inset-0 bg-white/90 flex items-center justify-center px-4">
+                <div className="w-full max-w-xl bg-white rounded-2xl shadow-[0_18px_45px_rgba(15,23,42,0.18)] border border-slate-200 p-8 flex flex-col gap-8">
+
+                {/* Top summary */}
+                <div className="text-center space-y-3">
+                    <div className="text-4xl font-bold text-slate-800 tracking-tight">
+                    Score: {score}
+                    </div>
+                    <div className="text-lg font-medium text-slate-600">
+                    Time survived: {timeSurvivedSec}s
+                    </div>
                 </div>
-                <div className="text-sm text-slate-700">
-                  Time survived:{" "}
-                  <span className="font-mono">{timeSurvivedSec}s</span>
+
+                {/* AI evaluation history */}
+                <div className="space-y-2">
+                    <div className="text-xs font-semibold tracking-[0.15em] text-slate-500 uppercase">
+                        Corporate comment success:
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 overflow-hidden">
+                        <table className="w-full text-sm text-slate-700 table-fixed">
+                        <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+                            <tr>
+                            <th className="px-4 py-2 text-left w-1/3">Prompt</th>
+                            <th className="px-4 py-2 text-left w-1/6">Score</th>
+                            <th className="px-4 py-2 text-left w-1/2">AI Comment</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {evaluationHistory.map((ev, idx) => (
+                            <tr key={idx} className="border-t border-slate-200">
+                                <td className="px-4 py-3 align-top text-slate-800 whitespace-pre-wrap">
+                                {ev.prompt || "—"}
+                                </td>
+                                <td className="px-4 py-3 align-top font-mono font-semibold">
+                                {ev.score}/10
+                                </td>
+                                <td className="px-4 py-3 align-top text-slate-600 whitespace-pre-wrap">
+                                {ev.comment || "—"}
+                                </td>
+                            </tr>
+                            ))}
+                        </tbody>
+                        </table>
+                    </div>
+                    </div>
+
+                {/* Leaderboard placeholder */}
+                <div className="space-y-2">
+                    <div className="text-xs font-semibold tracking-[0.15em] text-slate-500 uppercase">
+                    Leaderboard
+                    </div>
+                    <div className="w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 py-6 flex items-center justify-center text-slate-400 text-sm">
+                    Coming soon
+                    </div>
                 </div>
-                <div className="text-sm text-slate-700">
-                  Bested by:{" "}
-                  <span className="font-semibold">
-                    {killedBy ?? "Cumulative Operational Load"}
-                  </span>
-                </div>
-                {lastAiScore != null && (
-                  <div className="text-xs text-slate-500">
-                    Last corporate score: {lastAiScore}/10
-                  </div>
-                )}
-                <div className="mt-3 flex justify-end gap-2">
-                  <button
+
+                {/* Retry */}
+                <div className="flex justify-center">
+                    <div
                     onClick={handleRetry}
-                    className="px-3 py-1.5 text-xs bg-sky-500 hover:bg-sky-600 text-white rounded-md"
-                  >
-                    Retry Simulation
-                  </button>
+                    className="select-none cursor-pointer font-bold text-4xl text-sky-600 hover:text-sky-700 transition-colors tracking-tight"
+                    >
+                    Retry
+                    </div>
                 </div>
-              </div>
+
+                </div>
             </div>
-          )}
+            )}
         </div>
       </div>
     </div>

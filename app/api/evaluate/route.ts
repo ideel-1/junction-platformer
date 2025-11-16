@@ -45,7 +45,8 @@ export async function POST(req: Request) {
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
   const systemInstruction = `
-You are an evaluator of corporate, LinkedIn-style writing.
+You evaluate extremely short LinkedIn-style corporate status updates
+written under a strict ~20 second time limit.
 
 You MUST respond ONLY with a single valid JSON object, with this exact shape:
 {
@@ -53,18 +54,37 @@ You MUST respond ONLY with a single valid JSON object, with this exact shape:
   "comment": string // 1-2 short sentences of feedback
 }
 
-Scoring guidelines:
-- 0–2: Not corporate at all, sloppy, or irrelevant
-- 3–5: Somewhat corporate, basic or generic
-- 6–8: Clearly corporate LinkedIn-style tone, structured, uses some jargon
-- 9–10: Very strong LinkedIn-corporate tone, confident, structured, uses jargon and "impact" language in a natural way
+The player is typing quickly and will make shortcuts and small mistakes.
+Do NOT grade as if this were a polished LinkedIn post.
+Reward effort, keyword usage, and recognizable corporate tone.
 
-Consider:
-- Tone: corporate, professional, LinkedIn-y
-- Structure: intro, outcome, "grateful"/"excited" style is good
-- Jargon & buzzwords: "impact", "value", "align", "stakeholders", "journey", etc.
-- Clarity and grammar: better writing can get higher scores
-- Keywords: if supplied, using them meaningfully in context is a positive signal
+Scoring rubric (maximum 10 points):
+
+1) Keyword usage (0–4 points total)
+   - +1.3 points for each target keyword used at least once in a meaningful way.
+   - Cap the keyword-related contribution at 4 points total.
+
+2) Corporate tone (0–3 points total)
+   - Look for: professional tone, basic structure, gratitude/optimism, confidence.
+   - Minor grammar issues, typos, and lack of perfect structure are acceptable.
+   - If it clearly sounds like a LinkedIn-style update under time pressure,
+     it should usually get 2–3 points here.
+
+3) Relevance to prompt (0–2 points total)
+   - If the text addresses the general theme of the prompt (even loosely),
+     award 1.5–2 points.
+   - Only give 0–1 if the response is clearly off-topic or nonsense.
+
+4) Length / effort bonus (0–1 point total)
+   - If the player wrote at least ~25 characters of meaningful text,
+     award the full 1 point.
+   - Do not overthink style; use this to reward genuine effort.
+
+Interpret the rubric generously. This is a game and the writing happens fast.
+Scores between 6 and 9 should be common when the player tries to follow the prompt
+and uses some keywords.
+
+Return ONLY a JSON object with "score" (0–10) and "comment".
 `;
 
   const userInstruction = `
@@ -79,7 +99,7 @@ ${keywords.length ? keywords.join(", ") : "(none)"}
 Player text to evaluate:
 """${text}"""
 
-Return ONLY a JSON object with "score" (0-10) and "comment".
+Follow the rubric above and return ONLY a JSON object with "score" (0-10) and "comment".
 `;
 
   try {
@@ -102,11 +122,53 @@ Return ONLY a JSON object with "score" (0-10) and "comment".
       parsed = {};
     }
 
-    let rawScore = typeof parsed.score === "number" ? parsed.score : 0;
+    // Base score from model
+    let rawScore =
+      typeof parsed.score === "number" && !Number.isNaN(parsed.score)
+        ? parsed.score
+        : 0;
+
+    // Clamp to 0–10
     if (rawScore < 0) rawScore = 0;
     if (rawScore > 10) rawScore = 10;
 
-    const score = Math.round(rawScore * 10) / 10;
+    // --- Soft post-processing to avoid harsh punishment for good attempts ---
+
+    const trimmed = text.trim();
+    const lengthChars = trimmed.length;
+
+    // How many keywords are actually used?
+    const usedKeywordsCount =
+      keywords.length === 0
+        ? 0
+        : keywords.filter((kw) =>
+            trimmed.toLowerCase().includes(kw.toLowerCase())
+          ).length;
+
+    const keywordRatio =
+      keywords.length > 0 ? usedKeywordsCount / keywords.length : 0;
+
+    let adjustedScore = rawScore;
+
+    // 1) If most keywords are used + decent length, enforce a reasonable minimum.
+    if (keywords.length > 0 && keywordRatio >= 0.66 && lengthChars >= 40) {
+      // The player clearly tried to follow constraints.
+      if (adjustedScore < 6.5) {
+        adjustedScore = 6.5;
+      }
+    }
+
+    // 2) If there is non-trivial effort (length) but model was very harsh,
+    //    gently bump up very low scores.
+    if (lengthChars >= 25 && adjustedScore < 4) {
+      adjustedScore = 4;
+    }
+
+    // Final clamp and rounding to 1 decimal
+    if (adjustedScore < 0) adjustedScore = 0;
+    if (adjustedScore > 10) adjustedScore = 10;
+
+    const score = Math.round(adjustedScore * 10) / 10;
 
     return NextResponse.json(
       {
