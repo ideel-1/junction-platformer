@@ -912,7 +912,7 @@ useEffect(() => {
                 <div
                 className="absolute inset-0 bg-center bg-cover"
                 style={{
-                    backgroundImage: "url('/assets/background_pic1.avif')", // adjust extension if needed
+                    backgroundImage: "url('/assets/background_pic2.avif')", // adjust extension if needed
                 }}
                 >
                 {/* White overlay for softness / readability */}
@@ -920,35 +920,33 @@ useEffect(() => {
                 </div>
 
                 {/* Foreground card */}
-                <div className="relative bg-white shadow-2xl border border-slate-200 rounded-xl p-10 max-w-xl text-center text-slate-800">
-                <h1 className="text-3xl font-bold tracking-tight mb-4">
-                    Strategic Impact Simulation
+                <div className="relative bg-white shadow-2xl border border-slate-200 rounded-xl p-10 max-w-4xl text-center text-slate-800">
+                <h1 className="text-5xl font-boldonse font-bold tracking-tight mb-8">
+                    . . CORPORATE RETREAT . .
                 </h1>
 
-                <p className="text-lg font-semibold text-slate-600 mb-6">
-                    A controlled environment designed to benchmark your readiness for high-velocity professional realities.
+                <p className="text-lg text-slate-600 mb-6 max-w-2xl">
+                You take on the role of a true corporate demon, navigating falling “priorities” and publishing brief updates
+                that sound aligned and confident under pressure.
+                </p>
+                <p className="text-lg max-w-2xl text-slate-600 mb-6 max-w-2xl">
+                    Your writing tone determines how much more work arrives
                 </p>
 
-                <div className="text-base leading-relaxed text-slate-700 space-y-3 mb-8">
+                <div className="text-lg max-w-2xl leading-relaxed text-slate-700 space-y-3 mb-8">
                     <p>
-                    Use <span className="font-semibold">←/→</span> or <span className="font-semibold">A/D</span> to maintain positioning across shifting organizational dynamics.
-                    </p>
-                    <p>
-                    Incoming assets represent cross-functional expectations. Please avoid them to reduce operational drag.
-                    </p>
-                    <p>
-                    At regular intervals, you will craft a{" "}
-                    <span className="font-semibold">succinct narrative update</span> demonstrating alignment, gratitude, and strategic optimism.
-                    Your corporate tone directly determines the intensity of subsequent workload surges.
+                    Use <span className="font-semibold">←→</span> or <span className="font-semibold">AD</span> to maintain positioning across shifting organizational dynamics.
+                    Press <span className="font-semibold">↑</span> or <span className="font-semibold">W</span> to jump.
                     </p>
                 </div>
-
-                <button
+                <div className="flex justify-center">
+                    <div
                     onClick={handleStartGame}
-                    className="px-6 py-3 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold text-base shadow-md transition-all"
-                >
-                    Launch Simulation
-                </button>
+                    className="font-boldonse select-none cursor-pointer font-bold text-4xl text-sky-600 hover:text-sky-700 transition-colors tracking-tight"
+                    >
+                    start
+                    </div>
+                </div>
                 </div>
             </div>
             )}
@@ -1045,17 +1043,17 @@ useEffect(() => {
 
                 {/* Top summary */}
                 <div className="text-center space-y-3">
-                    <div className="text-4xl font-bold text-slate-800 tracking-tight">
+                    <div className="text-5xl font-boldonse font-bold text-slate-800 tracking-loose mb-6">
                     Score: {score}
                     </div>
-                    <div className="text-lg font-medium text-slate-600">
+                    <div className="font-boldonse text-lg font-medium text-slate-600">
                     Time survived: {timeSurvivedSec}s
                     </div>
                 </div>
 
                 {/* AI evaluation history */}
                 <div className="space-y-2">
-                    <div className="text-xs font-semibold tracking-[0.15em] text-slate-500 uppercase">
+                    <div className="text-xs font-semibold text-slate-500 uppercase">
                         Corporate comment success:
                     </div>
 
@@ -1090,7 +1088,7 @@ useEffect(() => {
 
                 {/* Leaderboard placeholder */}
                 <div className="space-y-2">
-                    <div className="text-xs font-semibold tracking-[0.15em] text-slate-500 uppercase">
+                    <div className="text-xs font-semibold text-slate-500 uppercase">
                     Leaderboard
                     </div>
                     <div className="w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 py-6 flex items-center justify-center text-slate-400 text-sm">
@@ -1102,9 +1100,9 @@ useEffect(() => {
                 <div className="flex justify-center">
                     <div
                     onClick={handleRetry}
-                    className="select-none cursor-pointer font-bold text-4xl text-sky-600 hover:text-sky-700 transition-colors tracking-tight"
+                    className="font-boldonse select-none cursor-pointer font-bold text-4xl text-sky-600 hover:text-sky-700 transition-colors tracking-tight"
                     >
-                    Retry
+                    retry
                     </div>
                 </div>
 
